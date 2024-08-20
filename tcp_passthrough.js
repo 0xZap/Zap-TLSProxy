@@ -1,64 +1,125 @@
 const net = require("net");
+const fs = require("fs");
+const crypto = require("crypto");
+const http = require("http");
 
-// Configuration for the target server
-const TARGET_HOST = "api.x.com"; // Replace with the actual target host
-const TARGET_PORT = 443; // Replace with the actual target port
+const LISTEN_PORT = 55688;
+const HTTP_PORT = 8080;
+const LOG_FILE = "proxy.log";
+const PRIVATE_KEY_FILE = "private-key.pem";
 
-// Configuration for the passthrough server
-const LISTEN_PORT = 55688; // Port where this passthrough server will listen
+function logData(data) {
+  fs.appendFileSync(LOG_FILE, data + "\n", "utf8");
+}
 
-// Create a server that listens for incoming connections
-const server = net.createServer((clientSocket) => {
+// Function to sign the log
+function signLog(logData) {
+  const privateKey = fs.readFileSync(PRIVATE_KEY_FILE, "utf8");
+  const sign = crypto.createSign("SHA256");
+  sign.update(logData);
+  sign.end();
+  const signature = sign.sign(privateKey, "hex");
+  return signature;
+}
+
+const proxyServer = net.createServer((clientSocket) => {
   console.log(
     "Client connected:",
     clientSocket.remoteAddress,
     clientSocket.remotePort
   );
 
-  // Create a socket to connect to the target server
-  const targetSocket = net.createConnection({
-    host: TARGET_HOST,
-    port: TARGET_PORT,
-  });
+  clientSocket.once("data", (data) => {
+    const request = data.toString();
+    const match = request.match(/^CONNECT\s+([^\s:]+):(\d+)\s+HTTP\/1\.1/i);
 
-  // When the client sends data, forward it to the target server
-  clientSocket.on("data", (data) => {
-    console.log("Received from client:", data.toString());
-    targetSocket.write(data);
-  });
+    if (match) {
+      const targetHost = match[1];
+      const targetPort = parseInt(match[2]);
 
-  // When the target server sends data, forward it to the client
-  targetSocket.on("data", (data) => {
-    console.log("Received from target:", data.toString());
-    clientSocket.write(data);
-  });
+      logData(
+        `[${new Date().toISOString()}] CONNECT request to ${targetHost}:${targetPort}`
+      );
+      logData(
+        `[${new Date().toISOString()}] Encrypted data received from client:`
+      );
+      logData(data.toString("hex"));
 
-  // Handle client socket close event
-  clientSocket.on("end", () => {
-    console.log("Client disconnected");
-    targetSocket.end();
-  });
+      const targetSocket = net.createConnection(
+        {
+          host: targetHost,
+          port: targetPort,
+        },
+        () => {
+          clientSocket.write("HTTP/1.1 200 Connection established\r\n\r\n");
 
-  // Handle target socket close event
-  targetSocket.on("end", () => {
-    console.log("Target server disconnected");
-    clientSocket.end();
-  });
+          clientSocket.pipe(targetSocket);
+          targetSocket.pipe(clientSocket);
 
-  // Handle errors on client socket
-  clientSocket.on("error", (err) => {
-    console.error("Client socket error:", err.message);
-    targetSocket.end();
-  });
+          clientSocket.on("data", (chunk) => {
+            logData(
+              `[${new Date().toISOString()}] Encrypted data sent to server:`
+            );
+            logData(chunk.toString("hex"));
+          });
 
-  // Handle errors on target socket
-  targetSocket.on("error", (err) => {
-    console.error("Target socket error:", err.message);
-    clientSocket.end();
+          targetSocket.on("data", (chunk) => {
+            logData(
+              `[${new Date().toISOString()}] Encrypted data received from server:`
+            );
+            logData(chunk.toString("hex"));
+          });
+        }
+      );
+
+      targetSocket.on("error", (err) => {
+        console.error("Target socket error:", err.message);
+        clientSocket.end();
+      });
+
+      clientSocket.on("error", (err) => {
+        console.error("Client socket error:", err.message);
+        targetSocket.end();
+      });
+
+      clientSocket.on("end", () => {
+        console.log("Client disconnected");
+        targetSocket.end();
+      });
+
+      targetSocket.on("end", () => {
+        console.log("Target server disconnected");
+        clientSocket.end();
+      });
+    } else {
+      console.error("Invalid CONNECT request");
+      clientSocket.end();
+    }
   });
 });
 
-// Start the server and listen on the configured port
-server.listen(LISTEN_PORT, () => {
-  console.log(`TCP passthrough server listening on port ${LISTEN_PORT}`);
+proxyServer.listen(LISTEN_PORT, () => {
+  console.log(`Proxy server listening on port ${LISTEN_PORT}`);
+});
+
+const httpServer = http.createServer((req, res) => {
+  if (req.method === "GET" && req.url === "/signed-log") {
+    try {
+      const logData = fs.readFileSync(LOG_FILE, "utf8");
+      const signature = signLog(logData);
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ log: logData, signature: signature }));
+    } catch (err) {
+      res.writeHead(500, { "Content-Type": "text/plain" });
+      res.end("Error signing log: " + err.message);
+    }
+  } else {
+    res.writeHead(404, { "Content-Type": "text/plain" });
+    res.end("Not Found");
+  }
+});
+
+httpServer.listen(HTTP_PORT, () => {
+  console.log(`HTTP server listening on port ${HTTP_PORT}`);
 });

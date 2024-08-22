@@ -1,0 +1,13 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = "0.22"
+rustls = "0.20"
+webpki = "0.22"
+webpki-roots = "0.22"
+tokio-native-tls = "0.3"
+native-tls = "0.2"

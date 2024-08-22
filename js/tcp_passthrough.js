@@ -12,7 +12,6 @@ function logData(data) {
   fs.appendFileSync(LOG_FILE, data + "\n", "utf8");
 }
 
-// Function to sign the log
 function signLog(logData) {
   const privateKey = fs.readFileSync(PRIVATE_KEY_FILE, "utf8");
   const sign = crypto.createSign("SHA256");
@@ -20,6 +19,23 @@ function signLog(logData) {
   sign.end();
   const signature = sign.sign(privateKey, "hex");
   return signature;
+}
+
+function isTlsHandshake(data) {
+  if (data.length < 5) {
+    return false;
+  }
+
+  const contentType = data[0];
+  const version = data.readUInt16BE(1);
+
+  return (
+    contentType === 0x16 &&
+    (version === 0x0301 ||
+      version === 0x0302 ||
+      version === 0x0303 ||
+      version === 0x0304)
+  );
 }
 
 const proxyServer = net.createServer((clientSocket) => {
@@ -57,16 +73,20 @@ const proxyServer = net.createServer((clientSocket) => {
           targetSocket.pipe(clientSocket);
 
           clientSocket.on("data", (chunk) => {
-            logData(
-              `[${new Date().toISOString()}] Encrypted data sent to server:`
-            );
+            const isHandshake = isTlsHandshake(chunk);
+            const logPrefix = isHandshake
+              ? "TLS Handshake data sent to server:"
+              : "Encrypted data sent to server:";
+            logData(`[${new Date().toISOString()}] ${logPrefix}`);
             logData(chunk.toString("hex"));
           });
 
           targetSocket.on("data", (chunk) => {
-            logData(
-              `[${new Date().toISOString()}] Encrypted data received from server:`
-            );
+            const isHandshake = isTlsHandshake(chunk);
+            const logPrefix = isHandshake
+              ? "TLS Handshake data received from server:"
+              : "Encrypted data received from server:";
+            logData(`[${new Date().toISOString()}] ${logPrefix}`);
             logData(chunk.toString("hex"));
           });
         }
@@ -114,6 +134,28 @@ const httpServer = http.createServer((req, res) => {
       res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Error signing log: " + err.message);
     }
+  } else if (req.method === "POST" && req.url === "/proof") {
+    let body = "";
+
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", () => {
+      try {
+        const jsonData = JSON.parse(body);
+        logData(
+          `[${new Date().toISOString()}] Received JSON proof: ${JSON.stringify(
+            jsonData
+          )}`
+        );
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "success", data: jsonData }));
+      } catch (err) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ status: "error", message: err.message }));
+      }
+    });
   } else {
     res.writeHead(404, { "Content-Type": "text/plain" });
     res.end("Not Found");

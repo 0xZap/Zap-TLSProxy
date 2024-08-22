@@ -1,11 +1,17 @@
 const net = require("net");
 const tls = require("tls");
+const http = require("http");
+const crypto = require("crypto");
 
 const PROXY_HOST = "localhost";
 const PROXY_PORT = 55688;
 
 const TARGET_HOST = "www.example.com";
 const TARGET_PORT = 443;
+
+let accumulatedData = [];
+
+const proofId = crypto.randomUUID();
 
 const proxySocket = net.createConnection(
   { host: PROXY_HOST, port: PROXY_PORT },
@@ -38,11 +44,45 @@ proxySocket.on("data", (data) => {
 
     tlsSocket.on("data", (tlsData) => {
       console.log("Received from target server:");
-      console.log(tlsData.toString());
+      const serverResponse = tlsData.toString();
+      console.log(serverResponse);
+
+      accumulatedData.push(serverResponse);
     });
 
     tlsSocket.on("end", () => {
       console.log("Disconnected from target server");
+
+      const jsonResponse = JSON.stringify({
+        proofId: proofId,
+        data: accumulatedData.join(""),
+      });
+
+      const options = {
+        hostname: PROXY_HOST,
+        port: 8080,
+        path: "/proof",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(jsonResponse),
+        },
+      };
+
+      const req = http.request(options, (res) => {
+        console.log(`Status code: ${res.statusCode}`);
+
+        res.on("data", (d) => {
+          process.stdout.write(d);
+        });
+      });
+
+      req.on("error", (e) => {
+        console.error(`Problem with request: ${e.message}`);
+      });
+
+      req.write(jsonResponse);
+      req.end();
     });
 
     tlsSocket.on("error", (err) => {

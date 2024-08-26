@@ -1,89 +1,93 @@
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
-use tokio_rustls::{TlsConnector, client::TlsStream};
-use rustls::{ClientConfig, ClientConnection, KeyLogFile, OwnedTrustAnchor, RootCertStore, KeyUpdateRequest};
+use std::fs::File;
+use std::io::{self, Write, stdout, Read};
+use std::net::TcpStream;
 use std::sync::Arc;
-use webpki::DNSNameRef;
-use std::convert::TryFrom;
+use rustls::{ClientConfig, RootCertStore, KeyLogFile, ConnectionTrafficSecrets, ProtocolVersion};
+use rustls::pki_types::ServerName;
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     let proxy_host = "localhost";
     let proxy_port = 55688;
 
     let target_host = "www.example.com";
     let target_port = 443;
 
-    let proxy_addr = format!("{}:{}", proxy_host, proxy_port);
-    let mut proxy_socket = TcpStream::connect(proxy_addr).await?;
-    println!("Connected to the proxy server");
+    let proxy_address = format!("{}:{}", proxy_host, proxy_port);
 
-    let connect_request = format!(
-        "CONNECT {}:{} HTTP/1.1\r\nHost: {}\r\n\r\n",
-        target_host, target_port, target_host
-    );
-    proxy_socket.write_all(connect_request.as_bytes()).await?;
-
-    let mut response = vec![0; 1024];
-    proxy_socket.read(&mut response).await?;
-
-    if String::from_utf8_lossy(&response).contains("200 Connection established") {
-        println!("Proxy connected, now establishing TLS connection");
-
-        let mut tls_stream = establish_tls_connection(target_host, proxy_socket).await?;
-        println!("TLS connection established through proxy");
-
-        send_data_with_key_updates(&mut tls_stream).await?;
-    } else {
-        eprintln!("Failed to establish a connection through the proxy");
-    }
-
-    Ok(())
-}
-
-async fn establish_tls_connection(server_name: &str, stream: TcpStream) -> io::Result<TlsStream<TcpStream>> {
-    let mut root_cert_store = RootCertStore::empty();
-    root_cert_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.iter().map(|ta| {
-        OwnedTrustAnchor::from_subject_spki_name_constraints(ta.subject, ta.spki, ta.name_constraints)
-    }));
-
-    let config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_cert_store)
+    // Configurar TLS
+    let root_store = RootCertStore {
+        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
+    };
+    let mut config = ClientConfig::builder()
+        .with_root_certificates(root_store)
         .with_no_client_auth();
 
-    let connector = TlsConnector::from(Arc::new(config));
-    let domain = DNSNameRef::try_from_ascii_str(server_name).unwrap();
+    config.key_log = Arc::new(KeyLogFile::new());
+    config.enable_secret_extraction = true;
 
-    let tls_stream = connector.connect(domain, stream).await?;
-    Ok(tls_stream)
-}
+    let server_name = ServerName::try_from(target_host).unwrap();
 
-async fn send_data_with_key_updates(stream: &mut TlsStream<TcpStream>) -> io::Result<()> {
-    let data_part1 = b"Initial Data";
-    stream.write_all(data_part1).await?;
-    println!("Sent data with Ksending1");
+    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name.clone()).unwrap();
+    // Example of direct connection without proxy
+    // let mut sock = TcpStream::connect(format!("{}:{}", target_host, target_port)).unwrap();
+    let mut sock = TcpStream::connect(proxy_address).unwrap();
 
-    send_key_update(stream, KeyUpdateRequest::UpdateNotRequested).await?;
-    println!("Key updated to Ksending2");
+    // Enviar a requisição CONNECT para o proxy
+    let connect_request = format!("CONNECT {}:{} HTTP/1.1\r\nHost: {}\r\n\r\n", target_host, target_port, target_host);
+    sock.write_all(connect_request.as_bytes())?;
 
-    let data_part2 = b"Sensitive Data";
-    stream.write_all(data_part2).await?;
-    println!("Sent data with Ksending2");
+    // Ler a resposta do proxy
+    let mut response = [0; 4096];
+    sock.read(&mut response)?;
 
-    send_key_update(stream, KeyUpdateRequest::UpdateNotRequested).await?;
-    println!("Key updated to Ksending3");
+    // TLS Stream
+    {
+        let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+        tls.write_all(
+            concat!(
+                "GET / HTTP/1.1\r\n",
+                "Host: www.example.com\r\n",
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    }
 
-    let data_part3 = b"Final Data";
-    stream.write_all(data_part3).await?;
-    println!("Sent data with Ksending3");
+    let tls_version = conn.protocol_version();
+    match tls_version {
+        Some(ProtocolVersion::TLSv1_2) => println!("Using TLS 1.2"),
+        Some(ProtocolVersion::TLSv1_3) => println!("Using TLS 1.3"),
+        _ => println!("Unknown TLS version"),
+    }
 
-    Ok(())
-}
+    // Attempt to update traffic keys (usually after significant data transfer)
+    if conn.is_handshaking() {
+        conn.process_new_packets().unwrap();
+    }
 
-async fn send_key_update(stream: &mut TlsStream<TcpStream>, request: KeyUpdateRequest) -> io::Result<()> {
-    let connection = stream.get_mut().1; 
-    connection.send_key_update(request);
-    stream.flush().await?;
+    // conn.refresh_traffic_keys();
+    // conn.process_new_packets().unwrap();
+
+    // println!("Keys updated!");
+
+    // Send remaining data and close connection
+    {
+        let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+        tls.write_all(
+            concat!(
+                "Connection: close\r\n",
+                "\r\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+
+        let mut plaintext = Vec::new();
+        tls.read_to_end(&mut plaintext).unwrap();
+
+        stdout().write_all(&plaintext).unwrap();
+    }
+
+    println!("TLS keys have been logged to the file specified by SSLKEYLOGFILE.");
     Ok(())
 }

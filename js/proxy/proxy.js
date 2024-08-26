@@ -5,8 +5,8 @@ const http = require("http");
 
 const LISTEN_PORT = 55688;
 const HTTP_PORT = 8080;
-const LOG_FILE = "proxy.log";
-const PRIVATE_KEY_FILE = "private-key.pem";
+const LOG_FILE = "../utils/proxy.log";
+const PRIVATE_KEY_FILE = "../utils/private-key.pem";
 
 function logData(data) {
   fs.appendFileSync(LOG_FILE, data + "\n", "utf8");
@@ -149,8 +149,11 @@ const httpServer = http.createServer((req, res) => {
             jsonData
           )}`
         );
+
+        const signature = signLog(JSON.stringify(jsonData));
+
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ status: "success", data: jsonData }));
+        res.end(JSON.stringify({ signature: signature, proof: jsonData }));
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "error", message: err.message }));

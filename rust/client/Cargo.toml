@@ -4,10 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-tokio-rustls = "0.22"
-rustls = "0.20"
-webpki = "0.22"
-webpki-roots = "0.22"
-tokio-native-tls = "0.3"
-native-tls = "0.2"
+rustls = { version = "0.23.12" }
+tokio = { version = "1.34.0", features = ["io-util", "macros", "net", "rt"]}
+webpki-roots = "0.26"

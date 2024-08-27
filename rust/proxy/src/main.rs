@@ -6,9 +6,10 @@ use std::io::Write;
 use openssl::pkey::PKey;
 use openssl::sign::Signer;
 use openssl::hash::MessageDigest;
-use hyper::{Body, Response, Server};
+use hyper::{Body, Response, Server, Method};
 use hyper::service::{make_service_fn, service_fn};
 use serde_json::json;
+use serde_json::Value;
 use chrono;
 use hex;
 
@@ -126,23 +127,38 @@ async fn run_http_server(private_key: Arc<PKey<openssl::pkey::Private>>) {
             Ok::<_, hyper::Error>(service_fn(move |req| {
                 let private_key = private_key.clone();
                 async move {
-                    if req.method() == hyper::Method::GET && req.uri().path() == "/signed-log" {
-                        match fs::read_to_string(LOG_FILE) {
-                            Ok(log_data) => {
-                                let signature = sign_data(&private_key, log_data.as_bytes());
-                                let response = json!({
-                                    "log": log_data,
-                                    "signature": hex::encode(signature)
-                                });
-                                Ok::<_, hyper::Error>(Response::new(Body::from(response.to_string())))
-                            },
-                            Err(e) => Ok::<_, hyper::Error>(Response::builder()
-                                .status(500)
-                                .body(Body::from(format!("Error reading log file: {}", e)))
-                                .unwrap())
-                        }
-                    } else {
-                        Ok::<_, hyper::Error>(Response::builder()
+                    match (req.method(), req.uri().path()) {
+                        (&Method::POST, "/proof") => {
+                            let body_bytes = match hyper::body::to_bytes(req.into_body()).await {
+                                Ok(bytes) => bytes,
+                                Err(_) => {
+                                    return Ok::<_, hyper::Error>(
+                                        Response::builder()
+                                            .status(400)
+                                            .body(Body::from("Failed to read request body"))
+                                            .unwrap()
+                                    );
+                                }
+                            };
+
+                            let proof_data: Value = match serde_json::from_slice(&body_bytes) {
+                                Ok(data) => data,
+                                Err(_) => {
+                                    return Ok::<_, hyper::Error>(
+                                        Response::builder()
+                                            .status(400)
+                                            .body(Body::from("Invalid JSON"))
+                                            .unwrap()
+                                    );
+                                }
+                            };
+
+                            // Log the received proof data to the console
+                            println!("Received proof data: {:#?}", proof_data);
+
+                            Ok::<_, hyper::Error>(Response::new(Body::from("Proof data received")))
+                        },
+                        _ => Ok::<_, hyper::Error>(Response::builder()
                             .status(404)
                             .body(Body::from("Not Found"))
                             .unwrap())

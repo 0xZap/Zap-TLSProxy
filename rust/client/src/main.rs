@@ -4,6 +4,12 @@ use std::net::TcpStream;
 use std::sync::Arc;
 use rustls::{ClientConfig, RootCertStore, KeyLogFile, ConnectionTrafficSecrets, ProtocolVersion};
 use rustls::pki_types::ServerName;
+use hex;
+
+fn to_hex_string(bytes: &[u8]) -> String {
+    hex::encode(bytes)
+}
+
 
 fn main() -> io::Result<()> {
     let proxy_host = "localhost";
@@ -60,15 +66,15 @@ fn main() -> io::Result<()> {
         _ => println!("Unknown TLS version"),
     }
 
-    // Attempt to update traffic keys (usually after significant data transfer)
-    if conn.is_handshaking() {
-        conn.process_new_packets().unwrap();
-    }
+    // // Attempt to update traffic keys (usually after significant data transfer)
+    // if conn.is_handshaking() {
+    //     conn.process_new_packets().unwrap();
+    // }
 
-    // conn.refresh_traffic_keys();
-    // conn.process_new_packets().unwrap();
+    conn.refresh_traffic_keys();
+    conn.process_new_packets().unwrap();
 
-    // println!("Keys updated!");
+    println!("Keys updated!");
 
     // Send remaining data and close connection
     {
@@ -87,6 +93,56 @@ fn main() -> io::Result<()> {
 
         stdout().write_all(&plaintext).unwrap();
     }
+
+    let extracted_secrets = conn.dangerous_extract_secrets().expect("Failed to extract secrets");
+    
+    // Access the RX secrets (used to decrypt data received from the server)
+    let (rx_sequence_number, rx_secret) = extracted_secrets.rx;
+    
+    // Access the TX secrets (used to encrypt data sent to the server)
+    let (tx_sequence_number, tx_secret) = extracted_secrets.tx;
+    
+    // Display the RX secrets
+    match rx_secret {
+        rustls::ConnectionTrafficSecrets::Aes128Gcm { ref key, ref iv } => {
+            println!("RX Aes128Gcm Key: {}", to_hex_string(key.as_ref()));
+            println!("RX Aes128Gcm IV: {}", to_hex_string(iv.as_ref()));
+        },
+        rustls::ConnectionTrafficSecrets::Aes256Gcm { ref key, ref iv } => {
+            println!("RX Aes256Gcm Key: {}", to_hex_string(key.as_ref()));
+            println!("RX Aes256Gcm IV: {}", to_hex_string(iv.as_ref()));
+        },
+        rustls::ConnectionTrafficSecrets::Chacha20Poly1305 { ref key, ref iv } => {
+            println!("RX Chacha20Poly1305 Key: {}", to_hex_string(key.as_ref()));
+            println!("RX Chacha20Poly1305 IV: {}", to_hex_string(iv.as_ref()));
+        },
+        _ => {
+            println!("RX secret has an unknown or unsupported cipher suite.");
+        }
+    }
+    
+    // Display the TX secrets
+    match tx_secret {
+        rustls::ConnectionTrafficSecrets::Aes128Gcm { ref key, ref iv } => {
+            println!("TX Aes128Gcm Key: {}", to_hex_string(key.as_ref()));
+            println!("TX Aes128Gcm IV: {}", to_hex_string(iv.as_ref()));
+        },
+        rustls::ConnectionTrafficSecrets::Aes256Gcm { ref key, ref iv } => {
+            println!("TX Aes256Gcm Key: {}", to_hex_string(key.as_ref()));
+            println!("TX Aes256Gcm IV: {}", to_hex_string(iv.as_ref()));
+        },
+        rustls::ConnectionTrafficSecrets::Chacha20Poly1305 { ref key, ref iv } => {
+            println!("TX Chacha20Poly1305 Key: {}", to_hex_string(key.as_ref()));
+            println!("TX Chacha20Poly1305 IV: {}", to_hex_string(iv.as_ref()));
+        },
+        _ => {
+            println!("TX secret has an unknown or unsupported cipher suite.");
+        }
+    }
+
+    // Display the sequence numbers
+    println!("RX Sequence Number: {}", rx_sequence_number);
+    println!("TX Sequence Number: {}", tx_sequence_number);
 
     println!("TLS keys have been logged to the file specified by SSLKEYLOGFILE.");
     Ok(())

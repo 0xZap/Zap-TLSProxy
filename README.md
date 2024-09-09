@@ -1,4 +1,4 @@
-<img src="src/assets/icon-128.png" width="64"/>
+<img src="zap-logo.png" width="64"/>
 
 # Zap TLS Proxy
 

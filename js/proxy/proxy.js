@@ -1,7 +1,10 @@
 const net = require("net");
+const tls = require("tls"); // Para conexões TLS
 const fs = require("fs");
 const crypto = require("crypto");
 const http = require("http");
+const WebSocket = require("ws");
+const { ethers } = require("ethers");
 
 const LISTEN_PORT = 55688;
 const HTTP_PORT = 8080;
@@ -21,106 +24,119 @@ function signLog(logData) {
   return signature;
 }
 
-function isTlsHandshake(data) {
-  if (data.length < 5) {
-    return false;
-  }
+async function hashAndSignMessage(dict, privateKey) {
+  const keys = Object.keys(dict);
+  const values = Object.values(dict);
 
-  const contentType = data[0];
-  const version = data.readUInt16BE(1);
+  const types = [];
+  const combinedValues = [];
 
-  return (
-    contentType === 0x16 &&
-    (version === 0x0301 ||
-      version === 0x0302 ||
-      version === 0x0303 ||
-      version === 0x0304)
-  );
+  keys.forEach((key, index) => {
+    types.push("string"); // key type
+    types.push("uint256"); // value type
+    combinedValues.push(key, values[index]);
+  });
+
+  // Hash the combined keys and values
+  const dataHash = ethers.utils.solidityKeccak256(types, combinedValues);
+
+  // Sign the hash
+  const wallet = new ethers.Wallet(privateKey);
+  const signature = await wallet.signMessage(ethers.utils.arrayify(dataHash));
+
+  return signature;
 }
 
-const proxyServer = net.createServer((clientSocket) => {
-  console.log(
-    "Client connected:",
-    clientSocket.remoteAddress,
-    clientSocket.remotePort
-  );
+// WebSocket server para conexões de proxy
+const wsServer = new WebSocket.Server({ port: LISTEN_PORT });
 
-  clientSocket.once("data", (data) => {
-    const request = data.toString();
-    const match = request.match(/^CONNECT\s+([^\s:]+):(\d+)\s+HTTP\/1\.1/i);
+wsServer.on("connection", (ws) => {
+  console.log("WebSocket client connected");
+  let targetSocket = null;
 
-    if (match) {
-      const targetHost = match[1];
-      const targetPort = parseInt(match[2]);
+  ws.on("message", (message) => {
+    const request = message.toString();
+    console.log("Received message:", request);
 
-      logData(
-        `[${new Date().toISOString()}] CONNECT request to ${targetHost}:${targetPort}`
-      );
-      logData(
-        `[${new Date().toISOString()}] Encrypted data received from client:`
-      );
-      logData(data.toString("hex"));
+    // Verifica se é o primeiro CONNECT
+    if (!targetSocket) {
+      const match = request.match(/^CONNECT\s+([^\s:]+):(\d+)\s+HTTP\/1\.1/i);
 
-      const targetSocket = net.createConnection(
-        {
-          host: targetHost,
-          port: targetPort,
-        },
-        () => {
-          clientSocket.write("HTTP/1.1 200 Connection established\r\n\r\n");
+      if (match) {
+        const targetHost = match[1];
+        const targetPort = parseInt(match[2]);
 
-          clientSocket.pipe(targetSocket);
-          targetSocket.pipe(clientSocket);
+        logData(
+          `[${new Date().toISOString()}] CONNECT request to ${targetHost}:${targetPort}`
+        );
+        logData(
+          `[${new Date().toISOString()}] Encrypted data received from client:`
+        );
+        logData(message.toString("hex"));
 
-          clientSocket.on("data", (chunk) => {
-            const isHandshake = isTlsHandshake(chunk);
-            const logPrefix = isHandshake
-              ? "TLS Handshake data sent to server:"
-              : "Encrypted data sent to server:";
-            logData(`[${new Date().toISOString()}] ${logPrefix}`);
-            logData(chunk.toString("hex"));
-          });
+        // Verifica se é uma conexão HTTPS (porta 443)
+        const useTls = targetPort === 443;
 
-          targetSocket.on("data", (chunk) => {
-            const isHandshake = isTlsHandshake(chunk);
-            const logPrefix = isHandshake
-              ? "TLS Handshake data received from server:"
-              : "Encrypted data received from server:";
-            logData(`[${new Date().toISOString()}] ${logPrefix}`);
-            logData(chunk.toString("hex"));
-          });
-        }
-      );
+        // Conectar ao servidor de destino
+        targetSocket = (useTls ? tls : net).connect(
+          {
+            host: targetHost,
+            port: targetPort,
+            rejectUnauthorized: false, // Aceitar todos os certificados (pode melhorar em produção)
+          },
+          () => {
+            // Notifica o cliente WebSocket de que a conexão foi estabelecida
+            ws.send("HTTP/1.1 200 Connection established\r\n\r\n");
 
-      targetSocket.on("error", (err) => {
-        console.error("Target socket error:", err.message);
-        clientSocket.end();
-      });
+            // Repassa os dados recebidos do WebSocket para o targetSocket
+            ws.on("message", (data) => {
+              console.log("Forwarding data from WebSocket to target server.");
+              targetSocket.write(data);
+            });
 
-      clientSocket.on("error", (err) => {
-        console.error("Client socket error:", err.message);
-        targetSocket.end();
-      });
+            // Repassa os dados recebidos do targetSocket para o WebSocket
+            targetSocket.on("data", (chunk) => {
+              console.log(
+                "Forwarding data from target server to WebSocket client."
+              );
+              ws.send(chunk); // Repassa os dados para o cliente WebSocket
+            });
 
-      clientSocket.on("end", () => {
-        console.log("Client disconnected");
-        targetSocket.end();
-      });
+            // Escuta quando o servidor de destino fecha a conexão
+            targetSocket.on("end", () => {
+              console.log("Target server closed connection.");
+              ws.close();
+            });
+          }
+        );
 
-      targetSocket.on("end", () => {
-        console.log("Target server disconnected");
-        clientSocket.end();
-      });
+        // Trata erros na conexão com o servidor de destino
+        targetSocket.on("error", (err) => {
+          console.error("Target socket error:", err.message);
+          ws.close();
+        });
+
+        // Fecha o targetSocket quando o WebSocket é desconectado
+        ws.on("close", () => {
+          console.log("WebSocket client disconnected");
+          targetSocket.end();
+        });
+      } else {
+        console.error("Invalid CONNECT request:", request);
+        ws.close();
+      }
     } else {
-      console.error("Invalid CONNECT request");
-      clientSocket.end();
+      // Após a conexão CONNECT, repassa as mensagens seguintes ao targetSocket
+      targetSocket.write(message); // Envia a solicitação HTTP para o servidor de destino
     }
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
   });
 });
 
-proxyServer.listen(LISTEN_PORT, () => {
-  console.log(`Proxy server listening on port ${LISTEN_PORT}`);
-});
+console.log(`WebSocket proxy server listening on port ${LISTEN_PORT}`);
 
 const httpServer = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/signed-log") {
@@ -141,19 +157,39 @@ const httpServer = http.createServer((req, res) => {
       body += chunk.toString();
     });
 
-    req.on("end", () => {
+    req.on("end", async () => {
       try {
         const jsonData = JSON.parse(body);
+
+        const proofId = jsonData.proofId;
+        const schemaId = jsonData.schemaId;
+        const proofData = jsonData.proofData;
+        const message = jsonData.message;
+        const tokens = jsonData.tokens;
+
         logData(
-          `[${new Date().toISOString()}] Received JSON proof: ${JSON.stringify(
-            jsonData
-          )}`
+          `[${new Date().toISOString()}] Received JSON proof: ${JSON.stringify({
+            proofId,
+            schemaId,
+            proofData,
+            message,
+            tokens,
+          })}`
         );
 
-        const signature = signLog(JSON.stringify(jsonData));
+        const privateKey =
+          "0x07da91125f80d729fad5e33bbe4d67754d0dc6ca29d60474170df75b1fd77418";
+        const signature = await hashAndSignMessage(message, privateKey);
 
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ signature: signature, proof: jsonData }));
+        res.end(
+          JSON.stringify({
+            signature: signature,
+            message: message,
+            proofData: { proofId, schemaId, proofData },
+            tokens: tokens,
+          })
+        );
       } catch (err) {
         res.writeHead(400, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ status: "error", message: err.message }));

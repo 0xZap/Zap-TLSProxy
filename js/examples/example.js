@@ -1,4 +1,4 @@
-const ZapProxy = require("../index.js");
+const ZapProxy = require("../src/index.js");
 const schemas = require("./schemas");
 
 (async () => {

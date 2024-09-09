@@ -27,4 +27,19 @@ module.exports = {
     targetHost: "backend.nodeguardians.io",
     targetPort: 443,
   },
+  spotify: {
+    id: "spotify",
+    method: "GET",
+    url: "/v1/me/player/recently-played?limit=50",
+    headers: {
+      Authorization:
+        "Bearer BQA5QtbGpo2r6KKI9n9qEIbbiNEUtuS6Pe-VHb_ARCTT57te-hPeriolv6WZ9KEyIav-WpWm0rya0ZXO7Wo42gvLt-9RyvaLl0qZSaDLxWAzbtv6foog1G7nRGdi8p1jzTQmmzqtrV7f6ORR-0uNWcmZI4AVFkMOLePReUe742ChwktOrq6dh2xt-H0XzzbzfL8NiwOGygPDZrZfjciLbpCTiiumrvwSAT4niZ1ghZFCpg7metSuZV7tfNIoRwAk8_bIUODVywILl5m6phgYcNDFb49qY2bZXy2eJxbMjsHkjoe958XsnvpevaofaTjQsyKiM9Ao",
+      Connection: "close",
+    },
+    body: "",
+    proxyHost: "localhost",
+    proxyPort: 55688,
+    targetHost: "api.spotify.com",
+    targetPort: 443,
+  },
 };

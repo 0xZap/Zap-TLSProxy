@@ -37,6 +37,6 @@ Then the project will be able to use the local SDK
 2. Run the proxy (websocket)
    1. Run `cargo run -p proxy`
 3. Run the client
-   2. Run `cargo run -p client`
+   1. Run `cargo run -p client`
 4. Now see the log file in the `utils` folder.
 

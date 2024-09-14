@@ -138,8 +138,10 @@ class ZapProxy {
       const responseBody = accumulatedDataStr.slice(bodyStartIndex);
 
       let filteredData;
-      let msg = {};
-      let names = {};
+      let organizedData;
+      let artists = [];
+      let songs = [];
+      let points = [];
 
       switch (schemaId) {
         case "spotify":
@@ -152,6 +154,7 @@ class ZapProxy {
               return {
                 trackId: item.track.id,
                 trackName: item.track.name,
+                trackImage: item.track.album.images[0].url,
                 artists: item.track.artists.map((artist) => ({
                   artistId: artist.id,
                   artistName: artist.name,
@@ -161,22 +164,43 @@ class ZapProxy {
               };
             });
 
-            filteredData?.forEach((item) => {
+            organizedData = filteredData?.reduce((acc, item) => {
               const firstArtist = item.artists[0];
-
               if (firstArtist) {
-                const artistId = firstArtist.artistId;
-                if (msg[artistId]) {
-                  msg[artistId] += 1;
-                } else {
-                  msg[artistId] = 1;
-                }
-                const artistName = firstArtist.artistName;
-                names[artistId] = artistName;
-              }
-            });
+                const existingIndex = acc.findIndex(
+                  (data) =>
+                    data.trackId === item.trackId &&
+                    data.artistId === firstArtist.artistId
+                );
 
-            if (!filteredData) {
+                if (existingIndex === -1) {
+                  songs.push(item.trackId);
+                  artists.push(firstArtist.artistId);
+                  points.push(1);
+                  acc.push({
+                    trackId: item.trackId,
+                    artistId: firstArtist.artistId,
+                    artistName: firstArtist.artistName,
+                    trackName: item.trackName,
+                    trackImage: item.trackImage,
+                    durationMs: item.durationMs,
+                    playedAt: item.playedAt,
+                    count: 1,
+                  });
+                } else {
+                  acc[existingIndex].count += 1;
+                  points[existingIndex] += 1;
+                }
+              }
+              return acc;
+            }, []);
+
+            // console.log("Artists:", artists);
+            // console.log("Songs:", songs);
+            // console.log("Points:", points);
+            // console.log("Organized data:", organizedData);
+
+            if (!organizedData) {
               return reject(
                 new Error("Could not find 'items' data in the response")
               );
@@ -189,15 +213,14 @@ class ZapProxy {
           break;
 
         default:
-          filteredData = responseBody;
+          organizedData = responseBody;
       }
 
       const jsonResponse = JSON.stringify({
         proofId: this.proofId,
         schemaId: schemaId,
-        proofData: filteredData,
-        message: msg,
-        tokens: names,
+        data: organizedData,
+        message: { artists, songs, points },
       });
 
       // Use the HTTP_PORT defined in the constructor

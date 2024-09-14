@@ -16,6 +16,8 @@ const schemas = require("./schemas");
 
     const proofResponse = await zapProxy.prove(schema);
 
+    // console.log("Proof:", proofResponse);
+
     console.log("Signature:", proofResponse.signature);
     console.log("Proof received:", proofResponse.proofData);
   } catch (error) {

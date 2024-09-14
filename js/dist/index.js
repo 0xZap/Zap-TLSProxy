@@ -138,8 +138,10 @@ var ZapProxy = /*#__PURE__*/function () {
         var bodyStartIndex = accumulatedDataStr.indexOf("\r\n\r\n") + 4;
         var responseBody = accumulatedDataStr.slice(bodyStartIndex);
         var filteredData;
-        var msg = {};
-        var names = {};
+        var organizedData;
+        var artists = [];
+        var songs = [];
+        var points = [];
         switch (schemaId) {
           case "spotify":
             try {
@@ -150,6 +152,7 @@ var ZapProxy = /*#__PURE__*/function () {
                 return {
                   trackId: item.track.id,
                   trackName: item.track.name,
+                  trackImage: item.track.album.images[0].url,
                   artists: item.track.artists.map(function (artist) {
                     return {
                       artistId: artist.id,
@@ -160,20 +163,40 @@ var ZapProxy = /*#__PURE__*/function () {
                   playedAt: item.played_at
                 };
               });
-              (_filteredData = filteredData) === null || _filteredData === void 0 || _filteredData.forEach(function (item) {
+              organizedData = (_filteredData = filteredData) === null || _filteredData === void 0 ? void 0 : _filteredData.reduce(function (acc, item) {
                 var firstArtist = item.artists[0];
                 if (firstArtist) {
-                  var artistId = firstArtist.artistId;
-                  if (msg[artistId]) {
-                    msg[artistId] += 1;
+                  var existingIndex = acc.findIndex(function (data) {
+                    return data.trackId === item.trackId && data.artistId === firstArtist.artistId;
+                  });
+                  if (existingIndex === -1) {
+                    songs.push(item.trackId);
+                    artists.push(firstArtist.artistId);
+                    points.push(1);
+                    acc.push({
+                      trackId: item.trackId,
+                      artistId: firstArtist.artistId,
+                      artistName: firstArtist.artistName,
+                      trackName: item.trackName,
+                      trackImage: item.trackImage,
+                      durationMs: item.durationMs,
+                      playedAt: item.playedAt,
+                      count: 1
+                    });
                   } else {
-                    msg[artistId] = 1;
+                    acc[existingIndex].count += 1;
+                    points[existingIndex] += 1;
                   }
-                  var artistName = firstArtist.artistName;
-                  names[artistId] = artistName;
                 }
-              });
-              if (!filteredData) {
+                return acc;
+              }, []);
+
+              // console.log("Artists:", artists);
+              // console.log("Songs:", songs);
+              // console.log("Points:", points);
+              // console.log("Organized data:", organizedData);
+
+              if (!organizedData) {
                 return reject(new Error("Could not find 'items' data in the response"));
               }
             } catch (err) {
@@ -181,14 +204,17 @@ var ZapProxy = /*#__PURE__*/function () {
             }
             break;
           default:
-            filteredData = responseBody;
+            organizedData = responseBody;
         }
         var jsonResponse = JSON.stringify({
           proofId: _this3.proofId,
           schemaId: schemaId,
-          proofData: filteredData,
-          message: msg,
-          tokens: names
+          data: organizedData,
+          message: {
+            artists: artists,
+            songs: songs,
+            points: points
+          }
         });
 
         // Use the HTTP_PORT defined in the constructor

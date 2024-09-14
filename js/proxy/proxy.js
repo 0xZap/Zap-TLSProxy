@@ -24,27 +24,27 @@ function signLog(logData) {
   return signature;
 }
 
-async function hashAndSignMessage(dict, privateKey) {
-  const keys = Object.keys(dict);
-  const values = Object.values(dict);
+async function hashAndSignMessage(artists, songs, points, privateKey) {
+  const signatures = [];
 
-  const types = [];
-  const combinedValues = [];
+  for (let i = 0; i < artists.length; i++) {
+    const message = ethers.utils.solidityPack(
+      ["string", "string", "uint256"],
+      [artists[i], songs[i], points[i]]
+    );
 
-  keys.forEach((key, index) => {
-    types.push("string"); // key type
-    types.push("uint256"); // value type
-    combinedValues.push(key, values[index]);
-  });
+    const messageHash = ethers.utils.keccak256(message);
 
-  // Hash the combined keys and values
-  const dataHash = ethers.utils.solidityKeccak256(types, combinedValues);
+    const wallet = new ethers.Wallet(privateKey);
 
-  // Sign the hash
-  const wallet = new ethers.Wallet(privateKey);
-  const signature = await wallet.signMessage(ethers.utils.arrayify(dataHash));
+    const signature = await wallet.signMessage(
+      ethers.utils.arrayify(messageHash)
+    );
 
-  return signature;
+    signatures.push(signature);
+  }
+
+  return signatures;
 }
 
 // WebSocket server para conexões de proxy
@@ -163,31 +163,36 @@ const httpServer = http.createServer((req, res) => {
 
         const proofId = jsonData.proofId;
         const schemaId = jsonData.schemaId;
-        const proofData = jsonData.proofData;
+        const data = jsonData.data;
         const message = jsonData.message;
-        const tokens = jsonData.tokens;
+
+        const artists = message.artists;
+        const songs = message.songs;
+        const points = message.points;
 
         logData(
           `[${new Date().toISOString()}] Received JSON proof: ${JSON.stringify({
             proofId,
             schemaId,
-            proofData,
             message,
-            tokens,
           })}`
         );
 
         const privateKey =
           "0x07da91125f80d729fad5e33bbe4d67754d0dc6ca29d60474170df75b1fd77418";
-        const signature = await hashAndSignMessage(message, privateKey);
+        const signatures = await hashAndSignMessage(
+          artists,
+          songs,
+          points,
+          privateKey
+        );
 
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(
           JSON.stringify({
-            signature: signature,
+            signature: signatures,
             message: message,
-            proofData: { proofId, schemaId, proofData },
-            tokens: tokens,
+            proofData: { proofId, schemaId, data },
           })
         );
       } catch (err) {

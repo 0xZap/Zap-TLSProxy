@@ -9,4 +9,5 @@ webpki-roots = "0.26"
 hex = "0.4.2"
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["blocking"] }
+serde = { version = "1.0", features = ["derive"] }

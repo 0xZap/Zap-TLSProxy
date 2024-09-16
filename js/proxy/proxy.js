@@ -179,7 +179,7 @@ const httpServer = http.createServer((req, res) => {
         );
 
         const privateKey =
-          "0x07da91125f80d729fad5e33bbe4d67754d0dc6ca29d60474170df75b1fd77418";
+          "0x58a509d32050c1183912d2ab3482aae5a33a01be133f606bae300bee339cf9a4";
         const signatures = await hashAndSignMessage(
           artists,
           songs,

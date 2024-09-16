@@ -33,7 +33,7 @@ module.exports = {
     url: "/v1/me/player/recently-played?limit=50",
     headers: {
       Authorization:
-        "Bearer BQA2jcnotPIhSTsMoHV4p-M6zUSaQXYs7HQTAYuyIOdzDnnj_-iCpnLPR0ajdmdmHKKwBkl3ReVjVIzOU3V8jPnYrBIP1nrQkOhzTicBVpN0AiJLoT8A0oRT1-GtvO-Ix9I6KRSjcv3E7pP4RoQQIcFwCbaKU6f7PyFJXIRUzNiuA-Igb1tHZRuQH99dZArcWklS_csIb1m7zZPzXq9iplRUf892hjXFs_qg7jgWLJDkfMudTGCgNQR6p3MWqoB9BuqxGvLglYTIbyF29uNZ4wSfilynYIICFPKSoaMlylhNnCHzDIHSzgs1KuviblL5BS6eC7Z_",
+        "Bearer BQBJQfF6KvbwJFoGOqCdWUMOihFmeoLoeTuMKPZfL4if6jwS5GAxJrJ9pNKIDgZim3VTTyAJWrgB8ion8IsGQXLR30dcJV83TQt-D_fJ3SrV3Q9hLf1e8WFyDZJwOSsTWYXNJeCjAicJwf31M_jU8iAFJE7Mntqu98TzI3A3AknxreiDpFg_X4K5B9h9VvSy2vaeqN3VjL_Hs5PD4Fqv9JiQtf6b8dA7u0dK1CCcZuE2dmoISorUScAe5-4KnLrRdB_Be0mVX1yz-rM3U74cXuu8XKcAxKNSmJHd5aeFu7lS8qqtgs5LX6B4a9fRQYDzgJqkMFC7",
       Connection: "close",
     },
     body: "",

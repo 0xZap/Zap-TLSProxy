@@ -84,6 +84,28 @@ fn main() -> io::Result<()> {
         _ => println!("Unknown TLS version"),
     }
 
+    // conn.refresh_traffic_keys();
+    // conn.process_new_packets().unwrap();
+
+    // println!("Keys updated!");
+
+    // {
+    //     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+    //     tls.write_all(
+    //         concat!(
+    //             "Connection: close\r\n",
+    //             "\r\n"
+    //         )
+    //         .as_bytes(),
+    //     )
+    //     .unwrap();
+
+    //     let mut plaintext = Vec::new();
+    //     tls.read_to_end(&mut plaintext).unwrap();
+
+    //     stdout().write_all(&plaintext).unwrap();
+    // }
+
     let extracted_secrets = conn.dangerous_extract_secrets().expect("Failed to extract secrets");
     
     let (rx_sequence_number, rx_secret) = extracted_secrets.rx;

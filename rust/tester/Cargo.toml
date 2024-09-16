@@ -1,0 +1,12 @@
+[package]
+name = "tester"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aes-gcm = "0.10"           # AES-GCM encryption/decryption
+aes = "0.8"                # AES encryption algorithm (required by aes-gcm)
+aead = "0.5"               # Authenticated encryption and decryption (used by aes-gcm)
+hex = "0.4"                # Hex encoding/decoding library
+anyhow = "1.0"             # Error handling crate
+base64 = "0.22"

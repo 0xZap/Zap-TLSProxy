@@ -10,49 +10,15 @@ use hyper::{Body, Response, Server, Method};
 use hyper::service::{make_service_fn, service_fn};
 use serde::{Serialize, Deserialize};
 use chrono;
-use hex;
 use tokio::sync::Mutex;
-use aes_gcm::{Aes256Gcm, Key, Nonce}; // Import the AES-GCM cipher
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::Error as AesGcmError;
-use std::error::Error as StdError;
+use aes_gcm::{aead::{Aead, KeyInit, Payload}, Aes256Gcm, Nonce, Key}; 
+use hex::{decode, encode}; 
 use anyhow::{Result, Context};
-use std::fmt;
+use std::str;
 
 const LISTEN_PORT: u16 = 55688;
 const LOG_FILE: &str = "utils/proxy.log";
 const PRIVATE_KEY_FILE: &str = "utils/private-key.pem";
-
-#[derive(Debug)]
-enum DecryptError {
-    HexDecodeError(hex::FromHexError),
-    AesGcmError(aes_gcm::Error),
-    // Add other error variants as needed
-}
-
-impl fmt::Display for DecryptError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DecryptError::HexDecodeError(e) => write!(f, "Hex decode error: {}", e),
-            DecryptError::AesGcmError(e) => write!(f, "AES-GCM error: {}", e),
-            // Handle other variants
-        }
-    }
-}
-
-impl StdError for DecryptError {}
-
-impl From<hex::FromHexError> for DecryptError {
-    fn from(err: hex::FromHexError) -> DecryptError {
-        DecryptError::HexDecodeError(err)
-    }
-}
-
-impl From<aes_gcm::Error> for DecryptError {
-    fn from(err: aes_gcm::Error) -> DecryptError {
-        DecryptError::AesGcmError(err)
-    }
-}
 
 #[derive(Clone, Copy)]
 enum Direction {
@@ -269,19 +235,14 @@ async fn run_http_server(
                                 }
                             };
 
+                            // Log and store the received secrets
+                            println!("Received proof data: {:#?}", proof_data);
+
                             // Attempt to decrypt the logged data
                             {
                                 let data_log = data_log.lock().await;
-                                // match decrypt_data(&data_log, &proof_data) {
-                                //     Ok(plaintext) => {
-                                //         println!("Decrypted data:\n{}", plaintext);
-                                //     }
-                                //     Err(e) => {
-                                //         eprintln!("Decryption failed: {:?}", e);
-                                //     }
-                                // }
-                                let decrypted_data = mock_decrypt(&data_log, &proof_data);
-                                println!("Decrypted data: {}", decrypted_data);
+                                let decrypted_data = decrypt_data(&data_log, &proof_data);
+                                println!("Decrypted data: {:?}", decrypted_data);
                             }
 
                             Ok::<_, hyper::Error>(
@@ -309,104 +270,68 @@ async fn run_http_server(
     }
 }
 
-// fn decrypt_data(
-//     data_log: &[(Direction, Vec<u8>)],
-//     secrets: &SecretsPayload,
-// ) -> Result<String, DecryptError> {
-//     // Initialize sequence numbers
-//     let mut rx_sequence_number = secrets.rx_sequence_number;
-//     let mut tx_sequence_number = secrets.tx_sequence_number;
-
-//     let rx_key = hex::decode(&secrets.rx_secret.key)?;
-//     let rx_iv = hex::decode(&secrets.rx_secret.iv)?;
-//     let tx_key = hex::decode(&secrets.tx_secret.key)?;
-//     let tx_iv = hex::decode(&secrets.tx_secret.iv)?;
-
-//     let rx_cipher = Aes256Gcm::new_from_slice(&rx_key)?;
-//     let tx_cipher = Aes256Gcm::new_from_slice(&tx_key)?;
-
-//     let mut plaintext = Vec::new();
-
-//     for (direction, data) in data_log {
-//         let (cipher, iv, sequence_number) = match direction {
-//             Direction::ClientToServer => (&tx_cipher, &tx_iv, &mut tx_sequence_number),
-//             Direction::ServerToClient => (&rx_cipher, &rx_iv, &mut rx_sequence_number),
-//         };
-
-//         let mut cursor = &data[..];
-
-//         while cursor.len() >= 5 {
-//             // Parse TLS record header
-//             let content_type = cursor[0];
-//             let version = &cursor[1..3];
-//             let length = u16::from_be_bytes([cursor[3], cursor[4]]) as usize;
-
-//             // Ensure we have the full record
-//             if cursor.len() < 5 + length {
-//                 break; // Incomplete record
-//             }
-
-//             let header = &cursor[..5];
-//             let encrypted_record = &cursor[5..5 + length];
-
-//             // Compute nonce
-//             let mut nonce = vec![0u8; 12]; // 96-bit nonce
-//             nonce[..4].copy_from_slice(&[0u8; 4]); // First 4 bytes are zeros
-//             let seq_num_bytes = (*sequence_number).to_be_bytes();
-//             nonce[4..12].copy_from_slice(&seq_num_bytes);
-
-//             for i in 0..12 {
-//                 nonce[i] ^= iv[i];
-//             }
-
-//             let nonce = Nonce::from_slice(&nonce);
-
-//             // Decrypt the record
-//             let decrypted_data = cipher.decrypt(
-//                 nonce,
-//                 aes_gcm::aead::Payload {
-//                     msg: encrypted_record,
-//                     aad: header,
-//                 },
-//             );
-
-//             match decrypted_data {
-//                 Ok(mut data) => {
-//                     // Remove content type and padding
-//                     if let Some(&last_byte) = data.last() {
-//                         data.pop(); // Remove content type byte
-//                         // Remove padding (zeros before content type)
-//                         while data.last() == Some(&0) {
-//                             data.pop();
-//                         }
-//                     }
-//                     plaintext.extend_from_slice(&data);
-//                 }
-//                 Err(e) => {
-//                     eprintln!("Decryption failed: {:?}", e);
-//                 }
-//             }
-
-//             // Advance cursor
-//             cursor = &cursor[5 + length..];
-
-//             // Increment sequence number
-//             *sequence_number += 1;
-//         }
-//     }
-
-//     let plaintext_str = String::from_utf8_lossy(&plaintext).to_string();
-//     Ok(plaintext_str)
-// }
-
-fn mock_decrypt( 
+fn decrypt_data(
     data_log: &[(Direction, Vec<u8>)],
     secrets: &SecretsPayload,
-) -> String {
-    // Mock decryption logic
-    // In reality, you'd use the secrets to decrypt the data
-    format!(
-        "Mock decrypted data using cipher: {}",
-        secrets.rx_secret.cipher_suite
-    )
+) -> Result<Vec<String>> {
+    let mut decrypted_strings: Vec<String> = Vec::new();
+
+    if let Some((_direction, data)) = data_log.last() {
+        let hex_data: String = data.iter().map(|byte| format!("{:02x}", byte)).collect();
+
+        // Search for and split by the sequence '170303' in the hex data
+        let chunks: Vec<&str> = hex_data.split("170303").collect();
+
+        let mut sequence_number: u64 = 2; 
+
+        let _tx_iv = decode(&secrets.tx_secret.iv).context("Failed to decode tx iv")?;
+        let _tx_key = decode(&secrets.tx_secret.key).context("Failed to decode tx key")?;
+
+        let rx_iv = decode(&secrets.rx_secret.iv).context("Failed to decode rx iv")?;
+        let rx_key = decode(&secrets.rx_secret.key).context("Failed to decode rx key")?;
+        
+        for chunk in chunks.iter().filter(|&&chunk| !chunk.is_empty()) {
+            if chunk.len() > 2 * 2 {  // Each byte is represented by 2 hex characters
+                let cyphertext_hex = &chunk[2 * 2..];
+                let aad_hex = format!("170303{}", &chunk[..2 * 2]);
+
+                let aad = hex::decode(&aad_hex)
+                    .context("Failed to decode AAD hex to bytes")?;
+                let ciphertext = hex::decode(cyphertext_hex)
+                    .context("Failed to decode ciphertext hex to bytes")?;
+
+                let payload = Payload {
+                    msg: &ciphertext[..],
+                    aad: &aad[..],
+                };
+
+                let mut nonce = vec![0u8; 12];
+                let seq_num_bytes = sequence_number.to_be_bytes();
+
+                nonce[4..12].copy_from_slice(&seq_num_bytes);
+
+                for i in 0..12 {
+                    nonce[i] ^= rx_iv[i]; 
+                }
+
+                let nonce = Nonce::from_slice(&nonce); 
+                let key = Key::<Aes256Gcm>::from_slice(&rx_key[..]);
+
+                let cipher = Aes256Gcm::new(&key);
+                let decrypted = cipher.decrypt(&nonce, payload).map_err(|e| anyhow::anyhow!("Decryption failed: {:?}", e))?;   
+                
+                if let Ok(readable_text) = std::str::from_utf8(&decrypted) {
+                    decrypted_strings.push(readable_text.to_string());
+                } else {
+                    decrypted_strings.push("Decryption error".to_string());
+                }
+
+                sequence_number += 1;
+            }
+        }
+    }  else {
+        println!("data_log is empty.");
+    }
+    
+    Ok(decrypted_strings) 
 }

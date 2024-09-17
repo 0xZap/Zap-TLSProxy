@@ -276,6 +276,12 @@ fn decrypt_data(
 ) -> Result<Vec<String>> {
     let mut decrypted_strings: Vec<String> = Vec::new();
 
+    // Issue: Fix Generalization for RX Direction TLS Decryption
+    //
+    // TODO: Generalize for every chunk of data
+    //
+    // Do not use only last, use decrypt in all possible chunks of data
+    //
     if let Some((_direction, data)) = data_log.last() {
         let hex_data: String = data.iter().map(|byte| format!("{:02x}", byte)).collect();
 

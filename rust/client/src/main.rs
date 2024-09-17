@@ -1,3 +1,11 @@
+// Issue: Make everything a SDK
+//
+// TODO: just do it in other folder with a simpler version
+//
+// Issue: Make tests for the SDK
+//
+// TODO: Do tests
+//
 use std::fs::File;
 use std::io::{self, Write, stdout, Read};
 use std::net::TcpStream;
@@ -106,6 +114,10 @@ fn main() -> io::Result<()> {
     //     stdout().write_all(&plaintext).unwrap();
     // }
 
+    // Issue: Find Second Key from the First Key
+    //
+    // TODO: Try to see if it is possible to find the second key from the first key
+    //
     let extracted_secrets = conn.dangerous_extract_secrets().expect("Failed to extract secrets");
     
     let (rx_sequence_number, rx_secret) = extracted_secrets.rx;

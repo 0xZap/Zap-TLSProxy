@@ -11,8 +11,8 @@ use hyper::service::{make_service_fn, service_fn};
 use serde::{Serialize, Deserialize};
 use chrono;
 use tokio::sync::Mutex;
-use aes_gcm::{aead::{Aead, KeyInit, Payload}, Aes256Gcm, Nonce, Key}; 
-use hex::{decode, encode}; 
+use aes_gcm::{aead::{Aead, KeyInit, Payload}, Aes256Gcm, Nonce, Key};
+use hex::{decode, encode};
 use anyhow::{Result, Context};
 use std::str;
 
@@ -222,7 +222,7 @@ async fn run_http_server(
                                     );
                                 }
                             };
-                
+
                             let proof_data: SecretsPayload = match serde_json::from_slice(&body_bytes) {
                                 Ok(data) => data,
                                 Err(_) => {
@@ -288,14 +288,14 @@ fn decrypt_data(
         // Search for and split by the sequence '170303' in the hex data
         let chunks: Vec<&str> = hex_data.split("170303").collect();
 
-        let mut sequence_number: u64 = 2; 
+        let mut sequence_number: u64 = 2;
 
         let _tx_iv = decode(&secrets.tx_secret.iv).context("Failed to decode tx iv")?;
         let _tx_key = decode(&secrets.tx_secret.key).context("Failed to decode tx key")?;
 
         let rx_iv = decode(&secrets.rx_secret.iv).context("Failed to decode rx iv")?;
         let rx_key = decode(&secrets.rx_secret.key).context("Failed to decode rx key")?;
-        
+
         for chunk in chunks.iter().filter(|&&chunk| !chunk.is_empty()) {
             if chunk.len() > 2 * 2 {  // Each byte is represented by 2 hex characters
                 let cyphertext_hex = &chunk[2 * 2..];
@@ -317,15 +317,15 @@ fn decrypt_data(
                 nonce[4..12].copy_from_slice(&seq_num_bytes);
 
                 for i in 0..12 {
-                    nonce[i] ^= rx_iv[i]; 
+                    nonce[i] ^= rx_iv[i];
                 }
 
-                let nonce = Nonce::from_slice(&nonce); 
+                let nonce = Nonce::from_slice(&nonce);
                 let key = Key::<Aes256Gcm>::from_slice(&rx_key[..]);
 
                 let cipher = Aes256Gcm::new(&key);
-                let decrypted = cipher.decrypt(&nonce, payload).map_err(|e| anyhow::anyhow!("Decryption failed: {:?}", e))?;   
-                
+                let decrypted = cipher.decrypt(&nonce, payload).map_err(|e| anyhow::anyhow!("Decryption failed: {:?}", e))?;
+
                 if let Ok(readable_text) = std::str::from_utf8(&decrypted) {
                     decrypted_strings.push(readable_text.to_string());
                 } else {
@@ -338,6 +338,6 @@ fn decrypt_data(
     }  else {
         println!("data_log is empty.");
     }
-    
-    Ok(decrypted_strings) 
+
+    Ok(decrypted_strings)
 }

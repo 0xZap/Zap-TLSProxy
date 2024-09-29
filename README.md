@@ -1,6 +1,6 @@
 <img src="zap-logo.png" width="64"/>
 
-# Zap TLS Proxy
+# Zap TLS Proxy (Work in progress)
 
 > [!IMPORTANT]
 > ⚠️ Current version is not safe for private data, we still not implemented ZKPs
